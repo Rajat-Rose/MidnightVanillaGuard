@@ -9,7 +9,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Date;
@@ -20,6 +22,8 @@ import java.util.UUID;
 public class MidnightVanillaGuard extends JavaPlugin implements Listener {
 
     private final Map<UUID, Integer> warningMap = new HashMap<>();
+    private final Map<UUID, Long> eatStartTimeMap = new HashMap<>();
+    
     private double maxReach;
     private int banHours;
     private String discordLink;
@@ -32,10 +36,10 @@ public class MidnightVanillaGuard extends JavaPlugin implements Listener {
         discordLink = getConfig().getString("discord-appeal-link", "Discord");
 
         getServer().getPluginManager().registerEvents(this, this);
-        getLogger().info("MidnightVanillaGuard Anti-Cheat successfully enabled!");
+        getLogger().info("MidnightVanillaGuard Ultra-Vanilla Enforcement Enabled!");
     }
 
-    // --- 1. Reach & KillAura Look Validation ---
+    // --- 1. COMBAT CHECKS (Reach, KillAura Angle, Cooldown) ---
     @EventHandler
     public void onEntityDamage(EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Player attacker)) return;
@@ -43,24 +47,24 @@ public class MidnightVanillaGuard extends JavaPlugin implements Listener {
         Entity victim = event.getEntity();
         double distance = attacker.getLocation().distance(victim.getLocation());
 
-        // Check 1: Exceeding 3.0 Blocks Reach
+        // Check A: Strict Reach Limit (Max 3.0 Blocks)
         if (distance > maxReach) {
             event.setCancelled(true);
             issueWarning(attacker, "Reach Limit Exceeded (" + String.format("%.2f", distance) + " blocks)");
             return;
         }
 
-        // Check 2: Directional Look Validation
+        // Check B: KillAura Angle Validation (Look Direction)
         double dotProduct = attacker.getLocation().getDirection().dot(
                 victim.getLocation().toVector().subtract(attacker.getLocation().toVector()).normalize()
         );
-        if (dotProduct < 0.2) { 
+        if (dotProduct < 0.25) { // Attacker is not looking towards victim
             event.setCancelled(true);
-            issueWarning(attacker, "Invalid Hit Direction (KillAura Target Lock)");
+            issueWarning(attacker, "Invalid Hit Direction / Multi-Aura Lock");
         }
     }
 
-    // --- 2. Flight Check ---
+    // --- 2. MOVEMENT CHECKS (Fly, Speed, Out-of-Bounds) ---
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
@@ -68,13 +72,41 @@ public class MidnightVanillaGuard extends JavaPlugin implements Listener {
         if (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) return;
         if (player.getAllowFlight() || player.isGliding()) return;
 
-        if (event.getTo().getY() - event.getFrom().getY() > 1.5 && !player.isOp()) {
+        double deltaY = event.getTo().getY() - event.getFrom().getY();
+        double deltaXZ = Math.hypot(event.getTo().getX() - event.getFrom().getX(), event.getTo().getZ() - event.getFrom().getZ());
+
+        // Check A: Illegal Flying / Vertical Speed
+        if (deltaY > 1.2 && !player.isOp()) {
             player.teleport(event.getFrom());
-            issueWarning(player, "Illegal Fly/Jump Detected");
+            issueWarning(player, "Illegal Fly/Vertical Movement");
+            return;
+        }
+
+        // Check B: Speed / Timer Check (Vanilla Sprint Limit ~0.66 per tick max)
+        if (deltaXZ > 0.85 && !player.isSprinting() && !player.isOp()) {
+            player.teleport(event.getFrom());
+            issueWarning(player, "Speed / Timer Hack Detected");
         }
     }
 
-    // --- 3. Punishment Workflow ---
+    // --- 3. EATING / FAST-USE CHECK ---
+    @EventHandler
+    public void onItemConsume(PlayerItemConsumeEvent event) {
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+
+        long now = System.currentTimeMillis();
+        if (eatStartTimeMap.containsKey(uuid)) {
+            long duration = now - eatStartTimeMap.get(uuid);
+            if (duration < 1000) { // Vanilla eating takes ~1.6s (32 ticks)
+                event.setCancelled(true);
+                issueWarning(player, "FastEat / FastUse Hack Detected");
+            }
+        }
+        eatStartTimeMap.put(uuid, now);
+    }
+
+    // --- 4. PUNISHMENT WORKFLOW (3 Warns -> 24h Ban) ---
     private void issueWarning(Player player, String reason) {
         UUID uuid = player.getUniqueId();
         int currentWarns = warningMap.getOrDefault(uuid, 0) + 1;
@@ -84,7 +116,8 @@ public class MidnightVanillaGuard extends JavaPlugin implements Listener {
             String kickMsg = ChatColor.RED + "❌ Illegal Modification Detected!\n" +
                     ChatColor.YELLOW + "Reason: " + reason + "\n" +
                     ChatColor.GOLD + "Warning (" + currentWarns + "/3)\n\n" +
-                    ChatColor.GRAY + "Repeated violations will result in a " + banHours + "h ban.";
+                    ChatColor.GRAY + "Note: Pure Vanilla behavior is strictly enforced.\n" +
+                    ChatColor.GRAY + "Repeated violations will cause a " + banHours + "h ban.";
             player.kickPlayer(kickMsg);
         } else {
             Date banExpiration = new Date(System.currentTimeMillis() + (banHours * 3600000L));
