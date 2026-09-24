@@ -1,0 +1,6 @@
+# MidnightVanillaGuard Configuration
+
+max-reach: 3.0
+ban-duration-hours: 24
+
+discord-appeal-link: "https://discord.gg/yourserver"
