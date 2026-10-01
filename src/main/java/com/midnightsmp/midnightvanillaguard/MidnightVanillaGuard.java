@@ -31,7 +31,8 @@ public class MidnightVanillaGuard extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        maxReach = getConfig().getDouble("max-reach", 3.0);
+        // Default reach limit updated from 3.0 to 4.0
+        maxReach = getConfig().getDouble("max-reach", 4.0);
         banHours = getConfig().getInt("ban-duration-hours", 24);
         discordLink = getConfig().getString("discord-appeal-link", "Discord");
 
@@ -47,7 +48,7 @@ public class MidnightVanillaGuard extends JavaPlugin implements Listener {
         Entity victim = event.getEntity();
         double distance = attacker.getLocation().distance(victim.getLocation());
 
-        // Check A: Strict Reach Limit (Max 3.0 Blocks)
+        // Check A: Strict Reach Limit (Max 4.0 Blocks)
         if (distance > maxReach) {
             event.setCancelled(true);
             issueWarning(attacker, "Reach Limit Exceeded (" + String.format("%.2f", distance) + " blocks)");
